@@ -1,10 +1,11 @@
-from PyQt5.QAxContainer import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtCore import *
 import time
 import pandas as pd
 from util.const import *
+from util.db_helper import *
 import FinanceDataReader as fdr
+import datetime
+from util.notifier import *
+
 """
 - PyQt
     - FinanceDataReader API 는 ActiveX Control인 OCX 방식으로 API 연결을 제공
@@ -32,24 +33,35 @@ class FinanceDataReader:
         # 실시간 채결 정보를 저장할 딕셔너리
         # 키: 종목 코드 / 값: 해당 종목의 정보
         self.universe_realtime_transaction_info = {}
-        nasdaq_code_list = self.get_df_list_by_market('NASDAQ')
-        kospi_code_list = self.get_df_list_by_market('NYSE')
+        self.market_type_list = ['KRX', 'NASDAQ', 'NYSE', 'ETF/KR', 'ETF/US']
+        for market_type in self.market_type_list:
+            self.check_and_get_abroad_code_list(market_type) # <class 'pandas.core.frame.DataFrame'>
 
-    def _make_kiwoom_instance(self):
+    def check_and_get_abroad_code_list(self, market_type):
         """
-        - Objectives
-            - 우리 컴퓨터에서 키움 API 를 사용할 수 있도록 설정
-            - 로그인 / 주식 부분 /  TR 요청
+        Objectives
+            - 특정 market의 code list를 받는다.
+        # TODO: market_type 을 바꿔가며 전략을 만들자.
+        Parameter: market_type("_")
+            - KRX
+            - KOSPI
+            - KOSDAQ
+            - NASDAQ
+            - NYSE: 뉴욕 증권거래소 종목
+            - AMEX
+            - SP500
 
-        - setControl
-            - PyQt5.QAxContainer.py 안 QAxWidget 클래스 내부 메서드
-
-        - "KFOPENAPI.KFOpenAPICtrl.1"
-            - 키움증권 웹 사이트에 접속하여 Open API를 설치하면 우리 컴퓨터에 설치되는 API 식별자 (프로그램 ID / ProgID)
-            - Open API를 설치한 컴퓨터라면 레지스트리에 모두 동일한 이름으로 저장
-        - 해외랑 국내랑 다름!!
+            - KS11 : KOSPI 지수
+            - KQ11: KOSDAQ 지수
+            - DJI : 다우존스 지수
+            - IXIC: 나스닥 종합 지수
+            - US500: S&P 500 지수
         """
-        self.setControl("KFOPENAPI.KFOpenAPICtrl.1")
+        if not check_table_exist('code_lists', market_type):
+            if not isinstance(market_type, str):
+                market_type = str(market_type)
+            market_name_df = fdr.StockListing(market_type)
+            insert_df_to_db('code_lists', market_type, market_name_df)
 
     def _login_slot(self, err_code):
         """
@@ -310,35 +322,6 @@ class FinanceDataReader:
         """
         print("[FinanceDataReader] _on_receive_msg is called {} / {} / {} / {}".format(screen_no, rqname, trcode, msg))
 
-    def get_df_list_by_market(self, market_type):
-        """
-        Objectives
-            - 특정 market의 code list를 받는다.
-        # TODO: market_type 을 바꿔가며 전략을 만들자.
-        Parameter: market_type("_")
-            - KRX
-            - KOSPI
-            - KOSDAQ
-            - NASDAQ
-            - NYSE: 뉴욕 증권거래소 종목
-            - AMEX
-            - SP500
-
-
-            - KS11 : KOSPI 지수
-            - KQ11: KOSDAQ 지수
-            - DJI : 다우존스 지수
-            - IXIC: 나스닥 종합 지수
-            - US500: S&P 500 지수
-            -
-        """
-        if not isinstance(market_type, str):
-            market_type = str(market_type)
-        df_market = fdr.StockListing(market_type)
-        df_market.head()
-        return df_market
-
-
     def _on_chejan_slot(self, s_gubun, n_item_cnt, s_fid_list):
         """
         - s_gubun
@@ -477,3 +460,91 @@ class FinanceDataReader:
                 "(최우선)매수호가": top_priority_bid,
                 "누적거래량": accum_volume
             })
+
+    def check_and_get_universe(self, strategy_name, universe_dict, now, only_abroad=False):
+
+        for universe_name in universe_dict['name']:
+            for market_type in self.market_type_list:
+                sql = "select Symbol from '{}' where Name='{}'".format(market_type, universe_name)
+                cur = execute_sql('code_lists', sql)
+                code = cur.fetchall()
+                if len(code) > 0:
+                    universe_dict['code'].append(code[0][0])
+                    break
+        if only_abroad:
+            sql = "CREATE TABLE universe(idx int(20) NOT NULL, code varchar(50) PRIMARY KEY, code_name varchar(50) NOT NULL, country varchar(50) NOT NULL, category varchar(50) NOT NULL, percent int(20) NOT NULL, created_at varchar(50) NOT NULL, abs_momentum REAL(50) NOT NULL, rel_momentum INT(50) NOT NULL, have INT(50) NOT NULL, have_percent int(20) NOT NULL,  momentum_month varchar(50 NOT NULL)"
+            execute_sql(strategy_name, sql)
+            sql = "insert or ignore into 'universe'(idx, code, code_name, country, category, percent, created_at, abs_momentum, rel_momentum, have, have_percent, momentum_month) values(?, ?, ?, ?, ?, ?, ?, ? ,?, ?, ?, ?)"
+            for idx in range(len(universe_dict['name'])):
+                execute_sql(strategy_name, sql, (idx, universe_dict['code'][idx],
+                                                universe_dict['name'][idx],
+                                                universe_dict['country'][idx],
+                                                universe_dict['category'][idx],
+                                                universe_dict['percent'][idx],
+                                                now,
+                                                 0.,
+                                                 -1,
+                                                 0,
+                                                 0,
+                                                 '0'))
+        else:
+            universe_df = pd.DataFrame({
+                'code': universe_dict['code'],
+                'code_name': universe_dict['name'],
+                'country': universe_dict['country'],
+                'category': universe_dict['category'],
+                'percent': universe_dict['percent'],
+                'created_at': [now] * len(universe_dict['percent']),
+                'abs_momentum': [0.] * len(universe_dict['percent']),
+                'rel_momentum': [-1] * len(universe_dict['percent']),
+                'have': [0] * len(universe_dict['percent']),
+                'have_percent': [0] * len(universe_dict['percent']),
+                'momentum_month': ['0'] * len(universe_dict['percent'])
+            })
+            insert_df_to_db(strategy_name, 'universe', universe_df)
+
+    def check_and_get_price_data(self, strategy_name, universe, code):
+        # data table이 없었으면 생성하기
+        # sql = "CREATE TABLE IF NOT EXISTS code(Date varchar(50) PRIMARY KEY, Close int(50) NOT NULL, Open int(50) NOT NULL, High int(50) NOT NULL, Low int(50) NOT NULL, Volume int(50) NOT NULL, Change REAL(50) NOT NULL)"
+        # execute_sql(strategy_name, sql)
+        code_name = universe[code]['code_name']
+        date = datetime.datetime.now().date()
+        year = int(date.strftime("%Y"))
+        last_year = str(year - 1)
+        price_df = fdr.DataReader(code, last_year)
+        price_df = price_df[::-1]
+        # last_data_date = str(price_df.index.tolist())
+        # s = pd.Series(['a', 'b', 'c', 'd', 'e'])
+        # price_df = price_df.set_index(keys=[s], inplace=False)
+        universe[code]['price_df'] = price_df
+        if not check_table_exist(strategy_name, code_name):
+            insert_df_to_db(strategy_name, code_name, price_df)
+            send_message('[CREATE PRICE DB OF UNIVERSE]\n\n\n' + str(code_name), LINE_MESSAGE_TOKEN)
+
+        else:
+            sql = "select max(`{}`) from `{}`".format('Date', code_name)
+
+            cur = execute_sql(strategy_name, sql)
+
+            # 일봉 데이터를 저장한 가장 최근 일자를 조회
+            last_db_date = cur.fetchone()
+
+            # 오늘 날짜를 20210101 형태로 지정
+            # 2022-03-03 00:00:00
+            now = datetime.datetime.now().strftime("%Y-%m-%d")
+            last_data_date = str(price_df.index.tolist()[0])#['Date'][0]
+            """
+            last_db_date: ('2022-03-04 00:00:00',)
+            last_db_date[0]: 2022-03-04 00:00:00
+            last_db_date[0][:10]: 2022-03-04
+            
+            last_data_date: 2022-03-03 00:00:00
+            last_data_date[:10]: 2022-03-03
+            """
+            # db 마지막 날짜(+시간)와 data 마지막 날짜(+시간)가 다르먼:
+            if last_db_date[0] != last_data_date: # last_db_date[0][:10] != now and
+                insert_df_to_db(strategy_name, code_name, price_df)
+                # if last_db_date[0][:10] != last_data_date[:10]:
+                send_message('[날짜가 지나서 -> UPDATE PRICE DB OF UNIVERSE]\n\n\n' + str(code_name), LINE_MESSAGE_TOKEN)
+
+        return universe

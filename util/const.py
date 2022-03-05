@@ -288,4 +288,4 @@ def get_fid(search_value):
 
 
 # 발급 받은 LINE 토큰을 붙여 넣습니다.
-RSI_STRATEGY_MESSAGE_TOKEN = "kdSR9ffz7G1GUVezCyLu78fAK6VsmiZlQcPKXrQzY6f"
+LINE_MESSAGE_TOKEN = "kdSR9ffz7G1GUVezCyLu78fAK6VsmiZlQcPKXrQzY6f"

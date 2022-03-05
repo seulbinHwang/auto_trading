@@ -1,4 +1,5 @@
 from datetime import datetime
+import pytz
 
 
 def check_transaction_open():
@@ -23,3 +24,25 @@ def check_adjacent_transaction_closed():
     end_time = now.replace(hour=15, minute=20, second=0, microsecond=0)
     return base_time <= now < end_time
 
+#######
+def check_transaction_open_usa():
+    """현재 시간이 장 중인지 확인하는 함수"""
+    now = datetime.now(pytz.timezone('America/New_York'))
+    start_time = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    end_time = now.replace(hour=16, minute=00, second=0, microsecond=0)
+    return start_time <= now <= end_time
+
+
+def check_transaction_closed_usa():
+    """현재 시간이 장이 끝난 시간인지 확인하는 함수"""
+    now = datetime.now(pytz.timezone('America/New_York'))
+    end_time = now.replace(hour=16, minute=00, second=0, microsecond=0)
+    return end_time < now
+
+
+# def check_adjacent_transaction_closed_usa():
+#     """현재 시간이 장 종료 부근인지 확인하는 함수(매수 시간 확인용)"""
+#     now = datetime.now(pytz.timezone('America/New_York'))
+#     base_time = now.replace(hour=15, minute=0, second=0, microsecond=0)
+#     end_time = now.replace(hour=15, minute=20, second=0, microsecond=0)
+#     return base_time <= now < end_time

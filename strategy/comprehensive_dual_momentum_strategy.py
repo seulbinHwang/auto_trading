@@ -1,19 +1,26 @@
-from api.Kiwoom import *
-from api.KiwoomWorld import *
 from api.FinanceDataReader import *
-from universe.comprehensive_dual_momentum_universe import *
+from universe import comprehensive_dual_momentum_universe
+from universe import chore_universe
 from util.db_helper import *
 from util.time_helper import *
 from util.notifier import *
+from util.crawling import *
 import math
 import traceback
+from threading import Thread
+import copy
+import numpy as np
 
-
-class ComprehensiveDualMomentumSrategy(QThread):
-    def __init__(self):
-        QThread.__init__(self)
+class ComprehensiveDualMomentumSrategy():
+    def __init__(self, additional_investment_amount, use_kiwoom=False, add_chore_universe=False):
+        self.additional_investment_amount = additional_investment_amount
+        self.add_chore_universe = add_chore_universe
+        self.use_kiwoom = use_kiwoom
         self.strategy_name = "ComprehensiveDualMomentumStrategy"
-        self.kiwoom = Kiwoom()
+        nowDatetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        send_message('[전략 코드 시작] \n\n\n' + self.strategy_name + ' 현재 시각' + nowDatetime, LINE_MESSAGE_TOKEN)
+        if self.use_kiwoom:
+            self.kiwoom = Kiwoom()
         self.finance_data_reader = FinanceDataReader()
 
 
@@ -39,122 +46,191 @@ class ComprehensiveDualMomentumSrategy(QThread):
             # 유니버스 조회, 없으면 생성
             self.check_and_get_universe()
 
-            # 가격 정보를 조회, 필요하면 생성
+            # # 가격 정보를 조회, 필요하면 생성
             self.check_and_get_price_data()
-
+            #
             # Kiwoom > 주문정보 확인 (다음날 장 거래 전까지 유효) -> self.kiwoom.order 을 사용해서 접근할 수 있습니다.
-            self.kiwoom.get_order()
+            if self.use_kiwoom:
+                self.kiwoom.get_order()
+                # Kiwoom > 잔고 확인 -> self.kiwoom.balance 을 사용해서 접근 가능
+                self.kiwoom.get_balance()
+                # Kiwoom > 예수금 확인
+                self.deposit = self.kiwoom.get_deposit()
 
-            # Kiwoom > 잔고 확인 -> self.kiwoom.balance 을 사용해서 접근 가능
-            self.kiwoom.get_balance()
-
-            # Kiwoom > 예수금 확인
-            self.deposit = self.kiwoom.get_deposit()
-
-            # 유니버스 실시간 체결정보 등록
-            self.set_universe_real_time()
+                # 유니버스 실시간 체결정보 등록
+                self.set_universe_real_time()
 
             self.is_init_success = True
 
         except Exception as e:
             print(traceback.format_exc())
             # LINE 메시지를 보내는 부분
-            send_message(traceback.format_exc(), RSI_STRATEGY_MESSAGE_TOKEN)
+            send_message(traceback.format_exc(), LINE_MESSAGE_TOKEN)
 
     def check_and_get_universe(self):
         """유니버스가 존재하는지 확인하고 없으면 생성하는 함수"""
-        if not check_table_exist(self.strategy_name, 'universe'): # ComprehensiveDualMomentumStrategy
-            # ComprehensiveDualMomentumStrategy db 내에 'universe' 테이블이 없으면
-            korea_universe_dict, abroad_universe_dict = get_universe()
-            print('------나의 유니버스를 공개하지!------')
-            print('korea_universe_dict:', korea_universe_dict)
-            print('abroad_universe_dict:', abroad_universe_dict)
-            universe = {} # {'code': code_name , ... }
+        # ComprehensiveDualMomentumStrategy db 내에 'universe' 테이블이 없으면
+        if not check_table_exist(self.strategy_name, 'universe'):
+            main_universe_dict = comprehensive_dual_momentum_universe.get_universe()
+            universe_dict = copy.deepcopy(main_universe_dict)
+            if self.add_chore_universe:
+                chore_universe_dict = chore_universe.get_universe()
+                for key in universe_dict.keys():
+                    universe_dict[key] += chore_universe_dict[key]
+            print(universe_dict)
             # 오늘 날짜를 20210101 형태로 지정
             now = datetime.now().strftime("%Y%m%d")
-
-            # KOSPI(0)에 상장된 모든 종목 코드를 가져와 kospi_code_list에 저장
-            kospi_code_list = self.kiwoom.get_code_list_by_market("0")
-
-            # KOSDAQ(10)에 상장된 모든 종목 코드를 가져와 kosdaq_code_list에 저장
-            kosdaq_code_list = self.kiwoom.get_code_list_by_market("10")
-
-            for code in kospi_code_list + kosdaq_code_list:
-                # 모든 종목 코드를 바탕으로 반복문 수행
-                code_name = self.kiwoom.get_master_code_name(code)
-
-                # 얻어온 종목명이 유니버스에 포함되어 있다면 딕셔너리에 추가
-                if code_name in universe_list:
-                    universe[code] = code_name
-
-            # 코드, 종목명, 생성일자자를 열로 가지는 DaaFrame 생성
-            universe_df = pd.DataFrame({
-                'code': universe.keys(),
-                'code_name': universe.values(),
-                'created_at': [now] * len(universe.keys())
-            })
-
-            # universe라는 테이블명으로 Dataframe을 DB에 저장함
-            insert_df_to_db(self.strategy_name, 'universe', universe_df)
-
-        # universe 테이블에서 모든 것을 select 하자.
-        sql = "select * from universe"
+            if self.use_kiwoom:
+                self.kiwoom.check_and_get_universe(self.strategy_name, universe_dict, now)
+                self.finance_data_reader.check_and_get_universe(self.strategy_name, universe_dict, now, only_abroad=True)
+            # FinanceDataReader 로 부터 code(Symbol) 찾기
+            else:
+                self.finance_data_reader.check_and_get_universe(self.strategy_name, universe_dict, now, only_abroad=False)
+            # universe 테이블에서 모든 것을 select 하자.
+        sql = "select * from 'universe'"
         cur = execute_sql(self.strategy_name, sql)
-        universe_list = cur.fetchall() # fetchall: select 문의 결과 객체를 이용하여, 조회 결과 확인 가능
-        for item in universe_list:
-            idx, code, code_name, created_at = item
+        db_universe_dict = cur.fetchall() # fetchall: select 문의 결과 객체를 이용하여, 조회 결과 확인 가능
+        for idx, item in enumerate(db_universe_dict):
+            _, code, code_name, country, category, percent, created_at, abs_momentum, rel_momentum, have, have_percent, momentum_month = item
             self.universe[code] = {
-                'code_name': code_name
+                'code_name': code_name,
+                'country': country,
+                'category': category,
+                'percent': percent,
+                'created_at': created_at,
+                'abs_momentum': abs_momentum,
+                'rel_momentum': rel_momentum,
+                'have': have,
+                'have_percent': have_percent,
+                'momentum_month': momentum_month
             }
-        print(self.universe)
+        # send_message('[UNIVERSE LIST] \n\n\n' + str(self.universe), LINE_MESSAGE_TOKEN)
 
     def check_and_get_price_data(self):
         """일봉 데이터가 존재하는지 확인하고 없다면 생성하는 함수"""
         for idx, code in enumerate(self.universe.keys()):
             print("({}/{}) {}".format(idx + 1, len(self.universe), code))
-
-            # (1)케이스: 일봉 데이터가 아예 없는지 확인(장 종료 이후)
-            if check_transaction_closed() and not check_table_exist(self.strategy_name, code):
-                # API를 이용해 조회한 가격 데이터 price_df에 저장
-                price_df = self.kiwoom.get_price_data(code)
-                # 코드를 테이블 이름으로 해서 데이터베이스에 저장
-                insert_df_to_db(self.strategy_name, code, price_df)
+            if self.use_kiwoom:
+                self.universe = self.kiwoom.check_and_get_price_data(self.strategy_name, self.universe, code)
+                if self.universe[code]['country'] == 'abroad':
+                    self.universe = self.finance_data_reader.check_and_get_price_data(self.strategy_name, self.universe, code)
             else:
-                # (2), (3), (4) 케이스: 일봉 데이터가 있는 경우
-                # (2)케이스: 장이 종료된 경우 API를 이용해 얻어온 데이터를 저장
-                if check_transaction_closed():
-                    # 저장된 데이터의 가장 최근 일자를 조회
-                    ## index가 가장 큰 데이터를 가져오는데, 어떻게 현재 날짜랑 비교하지?
-                        ## 정답은: get_price_data에서 얻어온 데이터를 데이터베이스에 저장할 때, index에 날짜를 저장하기 때문
-                    sql = "select max(`{}`) from `{}`".format('index', code)
-
-                    cur = execute_sql(self.strategy_name, sql)
-
-                    # 일봉 데이터를 저장한 가장 최근 일자를 조회
-                    last_date = cur.fetchone()
-
-                    # 오늘 날짜를 20210101 형태로 지정
-                    now = datetime.now().strftime("%Y%m%d")
-
-                    # 최근 저장 일자가 오늘이 아닌지 확인
-                    if last_date[0] != now:
-                        price_df = self.kiwoom.get_price_data(code)
-                        # 코드를 테이블 이름으로 해서 데이터베이스에 저장
-                        insert_df_to_db(self.strategy_name, code, price_df)
-
-                # (3), (4) 케이스: 장 시작 전이거나 장 중인 경우 데이터베이스에 저장된 데이터 조회
-                else:
-                    sql = "select * from `{}`".format(code)
-                    cur = execute_sql(self.strategy_name, sql)
-                    cols = [column[0] for column in cur.description] # ['index' , 'open', 'high', 'low', 'close', 'volume']
-
-                    # 데이터베이스에서 조회한 데이터를 DataFrame으로 변환해서 저장
-                    price_df = pd.DataFrame.from_records(data=cur.fetchall(), columns=cols)
-                    price_df = price_df.set_index('index')
-                    # 가격 데이터를 self.universe에서 접근할 수 있도록 저장
-                    self.universe[code]['price_df'] = price_df
+                self.universe = self.finance_data_reader.check_and_get_price_data(self.strategy_name, self.universe, code)
 
     def run(self):
+        if self.use_kiwoom:
+            self.kiwoom_thread = Thread(target=self.run_kiwoom, args=())
+            self.kiwoom_thread.start()
+        else:
+            self.run_finance_data_reader()
+            # self.finance_data_reader_thread = Thread(target=self.run_finance_data_reader, args=())
+            # self.finance_data_reader_thread.start()
+
+    def run_finance_data_reader(self):
+        """
+        :return:
+
+        Objectives
+            - universe 내 모든 종목의 현재 가격을 crawling 으로 알아냅니다. ('key' = current_price)
+            - 절대 모멘텀
+                - 지난 n 개월 전 (n개월 - 15 ~ n개월 + 15) 의 평균 가격을 도출 합니다.
+                - (현재 가격 / 과거 가격) 을 저장합니다. ('key' = abs_momentum)
+            - 상대 모멘텀
+                - 'key' = category 가 같은 종목 중
+                    - 'key' = abs_momentum 이 1 이상인 것들 중, 가장 큰 값의 종목을 찾아서
+                        - 'key' = rel_momentum 값을 1, 그렇지 않은 종목은 0 으로 저장합니다.
+                            - line 메신저로 사야할 종목과 팔아야 할 종목을 보냅니다.
+        """
+        momentum_month = 3
+        momentum_buy_max_num = [1, 2, 2]
+        if self.is_init_success:
+            category_percent = [0, 0, 0]
+            momentum_day = int(momentum_month * (365 / 12))
+            try:
+                # universe 내 모든 종목의 현재 가격을 crawling 으로 알아냅니다. ('key' = current_price)
+                pos_abs_momentum_dicts = [{}, {}, {}]
+                for idx, code in enumerate(self.universe.keys()):
+                    sql = "update universe set momentum_month=:momentum_month where code=:code"
+                    execute_sql(self.strategy_name, sql, {"momentum_month": momentum_month, "code": code})
+
+                    price_df = self.universe[code]['price_df']['Close'].copy()
+                    if self.universe[code]['country'] == 'korea':
+                        self.universe[code]['current_price'] = float(get_realtime_price_korea(code))
+                    else:
+                        self.universe[code]['current_price'] = float(price_df[0])
+                    # 절대 모멘텀
+                    past_average_price = price_df[momentum_day -15: momentum_day + 14].mean()
+                    self.universe[code]['abs_momentum'] = np.round(self.universe[code]['current_price'] / past_average_price, 2)
+                    sql = "update universe set abs_momentum=:abs_momentum where code=:code"
+                    execute_sql(self.strategy_name, sql, {"abs_momentum": self.universe[code]['abs_momentum'], "code": code})
+
+                    # 상대 모멘텀
+                    if self.universe[code]['category'] == '주식':
+                        category_idx = 0
+                    elif self.universe[code]['category'] == '채권':
+                        category_idx = 1
+                    elif self.universe[code]['category'] == '실물자산':
+                        category_idx = 2
+                    category_percent[category_idx] += self.universe[code]['percent']
+                    if self.universe[code]['abs_momentum'] >= 1:
+                        pos_abs_momentum_dicts[category_idx][code] = self.universe[code]['abs_momentum']
+                # 상대 모멘텀
+                for category_idx in range(len(pos_abs_momentum_dicts)):
+                    have_num = 0
+                    pos_abs_momentum_dicts[category_idx] = dict(sorted(pos_abs_momentum_dicts[category_idx].items(), key=lambda x: x[1]))
+                    pos_abs_moment_code_list = list(pos_abs_momentum_dicts[category_idx].keys())
+                    buy_num = min(len(pos_abs_moment_code_list), momentum_buy_max_num[category_idx])
+                    if buy_num > 0:
+                        have_percent = category_percent[category_idx] / buy_num
+                    else:
+                        have_percent = 0
+                    for temp_idx, code in enumerate(pos_abs_moment_code_list):
+                        self.universe[code]['rel_momentum'] = temp_idx
+                        if (len(pos_abs_moment_code_list) - temp_idx) <= momentum_buy_max_num[category_idx]: # 3 , 2, 1 < 2
+                            self.universe[code]['have'] = 1
+                            self.universe[code]['have_percent'] = have_percent
+                            have_num += 1
+                        else:
+                            self.universe[code]['have'] = 0
+                            self.universe[code]['have_percent'] = 0
+
+                        
+                for idx, code in enumerate(self.universe.keys()):
+                    sql = "select have from '{}' where code='{}'".format('universe', code)
+                    cur = execute_sql(self.strategy_name, sql)
+                    prev_have = cur.fetchone()[0] # int
+                    if self.universe[code]['have'] > prev_have:
+                        send_message('[매매 고고!!!] \n\n\n' + str(self.universe[code]['code_name']), LINE_MESSAGE_TOKEN)
+                    elif self.universe[code]['have'] < prev_have:
+                        send_message('[매수 고고!!!] \n\n\n' + str(self.universe[code]['code_name']), LINE_MESSAGE_TOKEN)
+                    sql = "update universe set have=:have where code=:code"
+                    execute_sql(self.strategy_name, sql,
+                                {"have": self.universe[code]['have'], "code": code})
+                    sql = "update universe set have_percent=:have_percent where code=:code"
+                    execute_sql(self.strategy_name, sql,
+                                {"have_percent": self.universe[code]['have_percent'], "code": code})
+                    sql = "update universe set rel_momentum=:rel_momentum where code=:code"
+                    execute_sql(self.strategy_name, sql,
+                                {"rel_momentum": self.universe[code]['rel_momentum'], "code": code})
+                for category in ['주식', '채권', '실물자산']:
+                    for idx, code in enumerate(self.universe.keys()):
+                        if self.universe[code]['category'] == category:
+                            universe_data_for_log = dict((i, self.universe[code][i]) for i in self.universe[code] if i != 'price_df')
+                            send_message('[UNIVERSE 상태:{}]\n\n\n'.format(category) + str(universe_data_for_log), LINE_MESSAGE_TOKEN)
+                            additional_investment_amount_indiv = np.round(self.additional_investment_amount * universe_data_for_log['have_percent'])
+                            if additional_investment_amount_indiv > 0:
+                                send_message('[새로운 투자 금액!!!!!!! 상태:{} --> 구매금액/새 투자 금액]\n\n\n'.format(universe_data_for_log['code_name']) + str(additional_investment_amount_indiv) + '/' + str(self.additional_investment_amount), LINE_MESSAGE_TOKEN)
+
+            except Exception as e:
+                print(traceback.format_exc())
+                # LINE 메시지를 보내는 부분
+                send_message(traceback.format_exc(), LINE_MESSAGE_TOKEN)
+        else:
+            send_message('전략 인스턴스 초기화가 잘못 되었습니다!!', LINE_MESSAGE_TOKEN)
+
+            # if check_transaction_open_usa():
+
+    def run_kiwoom(self):
         """실질적 수행 역할을 하는 함수"""
         while self.is_init_success:
             try:
@@ -194,7 +270,7 @@ class ComprehensiveDualMomentumSrategy(QThread):
             except Exception as e:
                 print(traceback.format_exc())
                 # LINE 메시지를 보내는 부분
-                send_message(traceback.format_exc(), RSI_STRATEGY_MESSAGE_TOKEN)
+                send_message(traceback.format_exc(), LINE_MESSAGE_TOKEN)
 
     def set_universe_real_time(self):
         """유니버스 실시간 체결정보 수신 등록하는 함수"""
@@ -274,7 +350,7 @@ class ComprehensiveDualMomentumSrategy(QThread):
         # LINE 메시지를 보내는 부분
         message = "[{}]sell order is done! quantity:{}, ask:{}, order_result:{}".format(code, quantity, ask,
                                                                                         order_result)
-        send_message(message, RSI_STRATEGY_MESSAGE_TOKEN)
+        send_message(message, LINE_MESSAGE_TOKEN)
 
     def check_buy_signal_and_order(self, code):
         """매수 대상인지 확인하고 주문을 접수하는 함수"""
@@ -370,7 +446,7 @@ class ComprehensiveDualMomentumSrategy(QThread):
             message = "[{}]buy order is done! quantity:{}, bid:{}, order_result:{}, deposit:{}, get_balance_count:{}, get_buy_order_count:{}, balance_len:{}".format(
                 code, quantity, bid, order_result, self.deposit, self.get_balance_count(), self.get_buy_order_count(),
                 len(self.kiwoom.balance))
-            send_message(message, RSI_STRATEGY_MESSAGE_TOKEN)
+            send_message(message, LINE_MESSAGE_TOKEN)
 
         # 매수신호가 없다면 종료
         else:
@@ -393,3 +469,10 @@ class ComprehensiveDualMomentumSrategy(QThread):
             if code not in self.kiwoom.balance and self.kiwoom.order[code]['주문구분'] == "매수":
                 buy_order_count = buy_order_count + 1
         return buy_order_count
+
+# class ComprehensiveDualMomentumSrategyWKiwoom(QThread, ComprehensiveDualMomentumSrategy):
+#     from api.Kiwoom import Kiwoom
+#     from api.KiwoomWorld import KiwoomWorld
+#     def __init__(self):
+#         QThread.__init__(self)
+#         ComprehensiveDualMomentumSrategy.__init__(self, use_kiwoom=True)
