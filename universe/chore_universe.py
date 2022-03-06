@@ -113,11 +113,11 @@ def get_universe():
             - IAU (5%)
             - VNQ (5%)
             - BCI (5%)
-    """
-    universe_dict = {'name': ['삼성전자', 'NAVER'],
-                     'country': ['korea', 'korea'],
-                     'category': ['주식', '주식'],
-                     'percent': [0., 0.],
+    ""
+    universe_dict = {'name': ['삼성전자', 'NAVER', 'KODEX 미국채울트라30년선물(H)', 'PIMCO 15+ Year U.S. TIPS Index'],
+                     'country': ['korea', 'korea', 'korea', 'abroad'],
+                     'category': ['주식', '주식', '주식', '채권'],
+                     'percent': [0., 0., 0., 0.],
                      'code': []}
     return universe_dict
     # # 크롤링 결과를 얻어옴

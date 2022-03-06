@@ -20,6 +20,22 @@ def check_table_exist(db_name, table_name):
         else:
             return False
 
+def check_column_exist(db_name, table_name, column_name, value):
+    """
+    - Objectives
+        - db_name에 table_name이 있는지 확인합니다.
+        - 예시
+            - db_name: RSIStrategy / ComprehensiveDualMomentumStrategy
+            - talbe_name: universe
+    """
+    # sqlite_master 라는 테이블은, 데이터베이스가 처음 생성되면 자동으로 생성되는 메타데이터 테이블이다. (db의 테이블 정보가 자동으로 저장된다.)
+    sql = "select `{}` from '{}' where `{}`='{}'".format(column_name, table_name, column_name, value)
+    cur = execute_sql(db_name, sql)
+    output = cur.fetchone()
+    if output is None:
+        return False
+    else:
+        return True
 
 def insert_df_to_db(db_name, table_name, df, option="replace"):
     """

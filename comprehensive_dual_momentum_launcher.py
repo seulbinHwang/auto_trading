@@ -10,6 +10,7 @@ else:
     additional_investment_amount = 0
 
 use_kiwoom = False
+use_chore_universe = True
 if use_kiwoom:
     app = QApplication(sys.argv)
     from strategy.comprehensive_dual_momentum_strategy import ComprehensiveDualMomentumSrategyWKiwoom
@@ -19,6 +20,9 @@ if use_kiwoom:
     app.exec_()
 else:
     from strategy.comprehensive_dual_momentum_strategy import ComprehensiveDualMomentumSrategy
-    comprehensive_dual_momentum_strategy = ComprehensiveDualMomentumSrategy(additional_investment_amount, add_chore_universe=False)
+    if not use_chore_universe:
+        comprehensive_dual_momentum_strategy = ComprehensiveDualMomentumSrategy(additional_investment_amount=additional_investment_amount, use_chore_universe=False)
+    else:
+        comprehensive_dual_momentum_strategy = ComprehensiveDualMomentumSrategy(strategy_name="ComprehensiveDualMomentumStrategyChore", additional_investment_amount=additional_investment_amount, use_chore_universe=True)
     comprehensive_dual_momentum_strategy.run_finance_data_reader()
 

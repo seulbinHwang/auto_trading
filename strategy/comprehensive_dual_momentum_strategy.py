@@ -12,11 +12,11 @@ import copy
 import numpy as np
 
 class ComprehensiveDualMomentumSrategy():
-    def __init__(self, additional_investment_amount, use_kiwoom=False, add_chore_universe=False):
+    def __init__(self, strategy_name="ComprehensiveDualMomentumStrategy", additional_investment_amount=0, use_kiwoom=False, use_chore_universe=False):
         self.additional_investment_amount = additional_investment_amount
-        self.add_chore_universe = add_chore_universe
+        self.use_chore_universe = use_chore_universe
         self.use_kiwoom = use_kiwoom
-        self.strategy_name = "ComprehensiveDualMomentumStrategy"
+        self.strategy_name = strategy_name
         nowDatetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         send_message('[전략 코드 시작] \n\n\n' + self.strategy_name + ' 현재 시각' + nowDatetime, LINE_MESSAGE_TOKEN)
         if self.use_kiwoom:
@@ -71,12 +71,13 @@ class ComprehensiveDualMomentumSrategy():
         """유니버스가 존재하는지 확인하고 없으면 생성하는 함수"""
         # ComprehensiveDualMomentumStrategy db 내에 'universe' 테이블이 없으면
         if not check_table_exist(self.strategy_name, 'universe'):
-            main_universe_dict = comprehensive_dual_momentum_universe.get_universe()
-            universe_dict = copy.deepcopy(main_universe_dict)
-            if self.add_chore_universe:
-                chore_universe_dict = chore_universe.get_universe()
-                for key in universe_dict.keys():
-                    universe_dict[key] += chore_universe_dict[key]
+            if not self.use_chore_universe:
+                universe_dict = comprehensive_dual_momentum_universe.get_universe()
+            else:
+                universe_dict = chore_universe.get_universe()
+                # chore_universe_dict = chore_universe.get_universe()
+                # for key in universe_dict.keys():
+                #     universe_dict[key] += chore_universe_dict[key]
             print(universe_dict)
             # 오늘 날짜를 20210101 형태로 지정
             now = datetime.now().strftime("%Y%m%d")
@@ -212,6 +213,7 @@ class ComprehensiveDualMomentumSrategy():
                     sql = "update universe set rel_momentum=:rel_momentum where code=:code"
                     execute_sql(self.strategy_name, sql,
                                 {"rel_momentum": self.universe[code]['rel_momentum'], "code": code})
+                additional_investment_amount_sum = 0
                 for category in ['주식', '채권', '실물자산']:
                     for idx, code in enumerate(self.universe.keys()):
                         if self.universe[code]['category'] == category:
@@ -219,8 +221,8 @@ class ComprehensiveDualMomentumSrategy():
                             send_message('[UNIVERSE 상태:{}]\n\n\n'.format(category) + str(universe_data_for_log), LINE_MESSAGE_TOKEN)
                             additional_investment_amount_indiv = np.round(self.additional_investment_amount * universe_data_for_log['have_percent'])
                             if additional_investment_amount_indiv > 0:
+                                additional_investment_amount_sum += additional_investment_amount_indiv
                                 send_message('[새로운 투자 금액!!!!!!! 상태:{} --> 구매금액/새 투자 금액]\n\n\n'.format(universe_data_for_log['code_name']) + str(additional_investment_amount_indiv) + '/' + str(self.additional_investment_amount), LINE_MESSAGE_TOKEN)
-
             except Exception as e:
                 print(traceback.format_exc())
                 # LINE 메시지를 보내는 부분
