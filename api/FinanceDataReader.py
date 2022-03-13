@@ -503,22 +503,30 @@ class FinanceDataReader:
             })
             insert_df_to_db(strategy_name, 'universe', universe_df)
 
-    def check_and_get_price_data(self, strategy_name, universe, code):
+    def check_and_get_price_data(self, strategy_name, universe, code, duration_year=2, close_only=False):
         # data table이 없었으면 생성하기
         # sql = "CREATE TABLE IF NOT EXISTS code(Date varchar(50) PRIMARY KEY, Close int(50) NOT NULL, Open int(50) NOT NULL, High int(50) NOT NULL, Low int(50) NOT NULL, Volume int(50) NOT NULL, Change REAL(50) NOT NULL)"
         # execute_sql(strategy_name, sql)
         code_name = universe[code]['code_name']
         date = datetime.datetime.now().date()
         year = int(date.strftime("%Y"))
-        last_year = str(year - 1)
+        last_year = str(year - duration_year)
         price_df = fdr.DataReader(code, last_year)
         price_df = price_df[::-1]
-        # last_data_date = str(price_df.index.tolist())
-        # s = pd.Series(['a', 'b', 'c', 'd', 'e'])
-        # price_df = price_df.set_index(keys=[s], inplace=False)
+        if close_only:
+            price_df = price_df.reset_index()
+            del price_df['Open']
+            del price_df['High']
+            del price_df['Low']
+            del price_df['Volume']
+            del price_df['Change']
+            price_df['Date'] = price_df['Date'].astype(str).str[:10]
         universe[code]['price_df'] = price_df
         if not check_table_exist(strategy_name, code_name):
-            insert_df_to_db(strategy_name, code_name, price_df)
+            if close_only:
+                insert_df_to_db(strategy_name, code_name, price_df, index=False)
+            else:
+                insert_df_to_db(strategy_name, code_name, price_df)
             send_message('[CREATE PRICE DB OF UNIVERSE]\n\n\n' + str(code_name), LINE_MESSAGE_TOKEN)
 
         else:

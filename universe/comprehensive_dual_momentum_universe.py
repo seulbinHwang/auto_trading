@@ -114,10 +114,10 @@ def get_universe():
             - VNQ (5%)
             - BCI (5%)
     """
-    universe_dict = {'name': ['KODEX 미국S&P500선물(H)', 'TIGER 미국채10년선물', 'Vanguard Total World Stock Index', 'Vanguard Extended Duration Tre.', 'iShares COMEX Gold Trust', 'Vanguard REIT', 'TIGER 원유선물Enhanced(H)'],
-                     'country': ['korea', 'korea', 'abroad', 'abroad', 'abroad', 'abroad', 'korea'],
-                     'category':['주식', '채권', '주식', '채권', '실물자산', '실물자산', '실물자산'],
-                     'percent': [0.15, 0.2, 0.15, 0.35, 0.05, 0.05, 0.05],
+    universe_dict = {'name': ['SPDR S&P 500', 'iShares MSCI Eafe Index Fund',  'Vanguard Extended Duration Tre.', 'PIMCO 15+ Year U.S. TIPS Index',  'Vanguard Long Term Bond', 'VanEck Vectors JP Morgan EM Local Currency Bd', 'iShares COMEX Gold Trust', 'Vanguard REIT', 'Invesco DB Commodity'],
+                     'country': ['abroad', 'abroad',  'abroad', 'abroad', 'abroad', 'abroad', 'abroad', 'abroad', 'abroad'],
+                     'category': ['주식', '주식', '채권', '채권', '채권', '채권', '실물자산', '실물자산', '실물자산'],
+                     'percent': [0.15, 0.15, 0.2, 0.2, 0.075, 0.075, 0.05, 0.05, 0.05],
                      'code': []}
     return universe_dict
     # # 크롤링 결과를 얻어옴

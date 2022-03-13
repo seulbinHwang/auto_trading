@@ -37,7 +37,7 @@ def check_column_exist(db_name, table_name, column_name, value):
     else:
         return True
 
-def insert_df_to_db(db_name, table_name, df, option="replace"):
+def insert_df_to_db(db_name, table_name, df, option="replace", abs_dir='', index=True):
     """
     - Objectives
         - db_name에 table_name에 해당 dataframe(df)를 입력합니다.
@@ -45,8 +45,8 @@ def insert_df_to_db(db_name, table_name, df, option="replace"):
             - db_name: RSIStrategy
             - talbe_name: universe
     """
-    with sqlite3.connect('{}.db'.format(db_name)) as con: # con: database 연결 객체
-       df.to_sql(table_name, con, if_exists=option)
+    with sqlite3.connect('{}{}.db'.format(abs_dir, db_name)) as con: # con: database 연결 객체
+       df.to_sql(table_name, con, if_exists=option, index=index)
 
 
 def execute_sql(db_name, sql, param={}):

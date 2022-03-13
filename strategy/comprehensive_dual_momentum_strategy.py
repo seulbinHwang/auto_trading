@@ -142,26 +142,32 @@ class ComprehensiveDualMomentumSrategy():
                         - 'key' = rel_momentum 값을 1, 그렇지 않은 종목은 0 으로 저장합니다.
                             - line 메신저로 사야할 종목과 팔아야 할 종목을 보냅니다.
         """
-        momentum_month = 3
-        momentum_buy_max_num = [1, 2, 2]
+        momentum_months = [3, 4, 5, 6, 7]
+        momentum_buy_max_num = [1, 4, 2]
         if self.is_init_success:
             category_percent = [0, 0, 0]
-            momentum_day = int(momentum_month * (365 / 12))
             try:
                 # universe 내 모든 종목의 현재 가격을 crawling 으로 알아냅니다. ('key' = current_price)
                 pos_abs_momentum_dicts = [{}, {}, {}]
                 for idx, code in enumerate(self.universe.keys()):
                     sql = "update universe set momentum_month=:momentum_month where code=:code"
-                    execute_sql(self.strategy_name, sql, {"momentum_month": momentum_month, "code": code})
-
+                    execute_sql(self.strategy_name, sql, {"momentum_month": '3/5/7/9/11', "code": code})
+                    if self.universe[code]['category'] == '채권':
+                        self.universe[code]['have_percent'] = self.universe[code]['percent']
                     price_df = self.universe[code]['price_df']['Close'].copy()
                     if self.universe[code]['country'] == 'korea':
                         self.universe[code]['current_price'] = float(get_realtime_price_korea(code))
                     else:
                         self.universe[code]['current_price'] = float(price_df[0])
                     # 절대 모멘텀
-                    past_average_price = price_df[momentum_day -15: momentum_day + 14].mean()
-                    self.universe[code]['abs_momentum'] = np.round(self.universe[code]['current_price'] / past_average_price, 2)
+                    abs_momentum = 0
+                    for momentum_month in momentum_months:
+                        momentum_day = int(momentum_month * (365 / 12))
+                        past_average_price = price_df[momentum_day -15: momentum_day + 14].mean()
+                        abs_momentum += np.round(self.universe[code]['current_price'] / past_average_price, 2)
+                    abs_momentum *= (1 / len(momentum_months))
+                    abs_momentum = np.round(abs_momentum, 2)
+                    self.universe[code]['abs_momentum'] = abs_momentum
                     sql = "update universe set abs_momentum=:abs_momentum where code=:code"
                     execute_sql(self.strategy_name, sql, {"abs_momentum": self.universe[code]['abs_momentum'], "code": code})
 
@@ -187,13 +193,15 @@ class ComprehensiveDualMomentumSrategy():
                         have_percent = 0
                     for temp_idx, code in enumerate(pos_abs_moment_code_list):
                         self.universe[code]['rel_momentum'] = temp_idx
-                        if (len(pos_abs_moment_code_list) - temp_idx) <= momentum_buy_max_num[category_idx]: # 3 , 2, 1 < 2
-                            self.universe[code]['have'] = 1
-                            self.universe[code]['have_percent'] = have_percent
-                            have_num += 1
-                        else:
-                            self.universe[code]['have'] = 0
-                            self.universe[code]['have_percent'] = 0
+                        if self.universe[code]['category'] != '채권':
+
+                            if (len(pos_abs_moment_code_list) - temp_idx) <= momentum_buy_max_num[category_idx]: # 3 , 2, 1 < 2
+                                self.universe[code]['have'] = 1
+                                self.universe[code]['have_percent'] = have_percent
+                                have_num += 1
+                            else:
+                                self.universe[code]['have'] = 0
+                                self.universe[code]['have_percent'] = 0
 
                         
                 for idx, code in enumerate(self.universe.keys()):

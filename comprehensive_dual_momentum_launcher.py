@@ -10,7 +10,7 @@ else:
     additional_investment_amount = 0
 
 use_kiwoom = False
-use_chore_universe = True
+use_chore_universe = False
 if use_kiwoom:
     app = QApplication(sys.argv)
     from strategy.comprehensive_dual_momentum_strategy import ComprehensiveDualMomentumSrategyWKiwoom
